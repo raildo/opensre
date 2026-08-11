@@ -177,7 +177,8 @@ def test_run_nrql_timeout_is_not_confused_with_empty_result(client: NewRelicClie
 
 def test_query_incidents_builds_the_expected_nrql(client: NewRelicClient) -> None:
     mock_http = _mock_transport(
-        client, _response(HTTPStatus.OK, {"data": {"actor": {"account": {"nrql": {"results": []}}}}})
+        client,
+        _response(HTTPStatus.OK, {"data": {"actor": {"account": {"nrql": {"results": []}}}}}),
     )
 
     client.query_incidents(
@@ -190,6 +191,27 @@ def test_query_incidents_builds_the_expected_nrql(client: NewRelicClient) -> Non
     assert "entity.name = 'checkout-service'" in sent_nrql
     assert "SINCE 30 minutes ago" in sent_nrql
     assert "LIMIT 10" in sent_nrql
+
+
+def test_query_incidents_reports_the_effective_limit_after_clamping(
+    client: NewRelicClient,
+) -> None:
+    """Callers need the *executed* limit to detect truncation correctly.
+
+    A request above the vendor's 5,000-row ceiling gets clamped before the
+    query runs — the result must carry that clamped value, not the caller's
+    original ask, or a full capped response reads as untruncated.
+    """
+    mock_http = _mock_transport(
+        client,
+        _response(HTTPStatus.OK, {"data": {"actor": {"account": {"nrql": {"results": []}}}}}),
+    )
+
+    result = client.query_incidents(since_minutes=30, limit=999_999)
+
+    sent_nrql = mock_http.post.call_args.kwargs["json"]["variables"]["nrql"]
+    assert "LIMIT 5000" in sent_nrql
+    assert result["effective_limit"] == 5000
 
 
 def test_probe_access_distinguishes_invalid_key_from_unreachable_account(

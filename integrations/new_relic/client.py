@@ -324,7 +324,12 @@ class NewRelicClient:
             f"{_INCIDENTS_SELECT}{where_clause} "
             f"SINCE {int(since_minutes)} minutes ago LIMIT {capped_limit}"
         )
-        return self.run_nrql(nrql)
+        outcome = self.run_nrql(nrql)
+        # Callers detect truncation by comparing the raw row count against the
+        # limit that was actually executed — not the caller's original ask,
+        # which this method may have clamped down to the vendor's ceiling.
+        outcome["effective_limit"] = capped_limit
+        return outcome
 
     def query_metrics(
         self,
